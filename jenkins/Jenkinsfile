@@ -1,0 +1,81 @@
+pipeline {
+    agent any
+    
+    environment {
+        DOCKER_IMAGE = "flask-app"
+        ECR_REPOSITORY = 'flask-app'
+        AWS_REGION = 'us-west-2'
+    }
+    
+    stages {
+        stage('Clone Repository') {
+            steps {
+                git 'https://github.com/your-repo/containerized-app.git'
+            }
+        }
+        
+        stage('Build Docker Image') {
+            steps {
+                sh 'docker build -t $DOCKER_IMAGE .'
+            }
+        }
+        
+        stage('Push to DockerHub') {
+            steps {
+                withDockerRegistry([credentialsId: 'docker-hub', url: '']) {
+                    sh 'docker push $DOCKER_IMAGE'
+                }
+            }
+        }
+        
+        stage('Deploy with Terraform') {
+            steps {
+                sh 'cd terraform && terraform init'
+                sh 'cd terraform && terraform apply -auto-approve'
+            }
+        }
+        
+        stage('Build and Test') {
+            steps {
+                sh 'python -m pip install -r requirements.txt'
+                sh 'python -m pytest tests/'
+            }
+        }
+        
+        stage('Push to ECR') {
+            steps {
+                script {
+                    sh '''
+                        aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REPOSITORY}
+                        docker tag ${DOCKER_IMAGE}:${BUILD_NUMBER} ${ECR_REPOSITORY}:${BUILD_NUMBER}
+                        docker push ${ECR_REPOSITORY}:${BUILD_NUMBER}
+                        docker tag ${DOCKER_IMAGE}:${BUILD_NUMBER} ${ECR_REPOSITORY}:latest
+                        docker push ${ECR_REPOSITORY}:latest
+                    '''
+                }
+            }
+        }
+        
+        stage('Deploy to ECS') {
+            steps {
+                script {
+                    sh '''
+                        aws ecs update-service --cluster flask-app-cluster --service flask-app --force-new-deployment
+                    '''
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            cleanWs()
+        }
+        success {
+            echo 'Pipeline completed successfully!'
+        }
+        failure {
+            echo 'Pipeline failed!'
+        }
+    }
+} 
