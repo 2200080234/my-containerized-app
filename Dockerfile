@@ -10,6 +10,9 @@ COPY . /app
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Create templates directory
+RUN mkdir -p /app/templates
+
 # Expose Flask port
 EXPOSE 5000
 
